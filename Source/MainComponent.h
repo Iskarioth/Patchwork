@@ -18,6 +18,7 @@ public:
 private:
     void timerCallback() override;
     void togglePlay();
+    void toggleRecording();
     void loadPatch (const juce::File&);
     void savePatch (const juce::File&);
     void syncTransportControls();
@@ -28,8 +29,10 @@ private:
     Patch patch { transport };
     AudioEngine engine { patch, transport };
 
-    juce::TextButton playButton { "Play" }, newButton { "New" }, openButton { "Open..." },
+    juce::TextButton playButton { "Play" }, recordButton { "Record" }, newButton { "New" }, openButton { "Open..." },
                      saveButton { "Save..." }, audioButton { "Audio..." };
+    juce::String status;           // replaces the help text for a while, e.g. where a recording went
+    juce::Time statusUntil;
     juce::Slider bpmSlider;
     juce::Label bpmLabel { {}, "BPM" }, positionLabel;
     juce::Viewport viewport;

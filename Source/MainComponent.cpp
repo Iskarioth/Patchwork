@@ -8,6 +8,11 @@ MainComponent::MainComponent()
     playButton.onClick = [this] { togglePlay(); };
     playButton.setTooltip ("Play / stop (Space)");
 
+    recordButton.setClickingTogglesState (false);
+    recordButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (0xff6b2323));
+    recordButton.onClick = [this] { toggleRecording(); };
+    recordButton.setTooltip ("Record the output to a WAV file in Music\\Patchwork");
+
     newButton.onClick = [this] {
         transport.stop();
         patch.clear();
@@ -56,7 +61,7 @@ MainComponent::MainComponent()
     positionLabel.setColour (juce::Label::backgroundColourId, juce::Colour (0xff0c0d0f));
     positionLabel.setColour (juce::Label::outlineColourId, Theme::line);
 
-    for (auto* c : std::initializer_list<juce::Component*> { &playButton, &positionLabel, &bpmLabel, &bpmSlider,
+    for (auto* c : std::initializer_list<juce::Component*> { &playButton, &positionLabel, &bpmLabel, &bpmSlider, &recordButton,
                                                              &newButton, &openButton, &saveButton, &audioButton })
         addAndMakeVisible (c);
 
@@ -81,6 +86,7 @@ MainComponent::MainComponent()
 
 MainComponent::~MainComponent()
 {
+    engine.getRecorder().stop();
     transport.stop();
     savePatch (autosaveFile());
     setLookAndFeel (nullptr);
@@ -121,6 +127,25 @@ void MainComponent::togglePlay()
     else transport.start();
 }
 
+void MainComponent::toggleRecording()
+{
+    auto& rec = engine.getRecorder();
+    if (rec.isRecording())
+    {
+        rec.stop();
+        status = "Saved " + rec.getFile().getFullPathName()
+                 + (rec.hasDroppedAudio() ? "  (the disk couldn't keep up; parts are missing)" : "");
+    }
+    else
+    {
+        const auto f = juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Patchwork")
+                           .getChildFile ("Patchwork " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H-%M-%S") + ".wav");
+        status = rec.start (f, transport.sampleRate.load()) ? juce::String() : "Couldn't create " + f.getFullPathName();
+    }
+    statusUntil = juce::Time::getCurrentTime() + juce::RelativeTime::seconds (15);
+    repaint();
+}
+
 bool MainComponent::keyPressed (const juce::KeyPress& key)
 {
     if (key == juce::KeyPress::spaceKey)
@@ -145,15 +170,32 @@ void MainComponent::timerCallback()
         pos = juce::String (s / 16 + 1) + "." + juce::String ((s % 16) / 4 + 1) + "." + juce::String (s % 4 + 1);
     }
     positionLabel.setText (pos, juce::dontSendNotification);
+
+    const auto& rec = engine.getRecorder();
+    juce::String recText ("Record");
+    if (rec.isRecording())
+    {
+        const auto secs = (int) (rec.getSamplesRecorded() / std::max (1.0, transport.sampleRate.load()));
+        recText = juce::String::formatted ("Stop  %d:%02d", secs / 60, secs % 60);
+    }
+    recordButton.setButtonText (recText);
+    recordButton.setToggleState (rec.isRecording(), juce::dontSendNotification);
+
+    if (status.isNotEmpty() && juce::Time::getCurrentTime() > statusUntil)
+    {
+        status.clear();
+        repaint();
+    }
 }
 
 void MainComponent::paint (juce::Graphics& g)
 {
     g.fillAll (juce::Colour (0xff191b1f));
-    g.setColour (Theme::dim);
+    g.setColour (status.isNotEmpty() ? Theme::text : Theme::dim);
     g.setFont (juce::FontOptions (12.0f));
-    g.drawText ("Right-click the canvas to add modules. Drag from a port to connect. Right-click a cable or module to remove it.",
-                getLocalBounds().removeFromTop (44).withTrimmedLeft (560).withTrimmedRight (330), juce::Justification::centredLeft);
+    g.drawText (status.isNotEmpty() ? status
+                                    : "Right-click the canvas to add modules. Drag from a port to connect. Right-click a cable or module to remove it.",
+                getLocalBounds().removeFromTop (44).withTrimmedLeft (500).withTrimmedRight (330), juce::Justification::centredLeft);
     g.setColour (Theme::line);
     g.fillRect (0, 44, getWidth(), 1);
 }
@@ -168,6 +210,8 @@ void MainComponent::resized()
     bar.removeFromLeft (14);
     bpmLabel.setBounds (bar.removeFromLeft (36));
     bpmSlider.setBounds (bar.removeFromLeft (120));
+    bar.removeFromLeft (14);
+    recordButton.setBounds (bar.removeFromLeft (110));
 
     audioButton.setBounds (bar.removeFromRight (80));
     bar.removeFromRight (6);

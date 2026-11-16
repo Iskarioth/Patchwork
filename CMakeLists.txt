@@ -66,6 +66,7 @@ if(PATCHWORK_BUILD_TESTS)
     target_link_libraries(PatchworkTests
         PRIVATE
             juce::juce_audio_processors
+            juce::juce_audio_formats
             juce::juce_dsp
         PUBLIC
             juce::juce_recommended_config_flags

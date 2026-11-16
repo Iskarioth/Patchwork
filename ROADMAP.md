@@ -8,11 +8,12 @@ v0.1: a modular groovebox on a patch canvas. Every sound is synthesized.
 - Instruments: 8-voice subtractive Synth, 8-voice 2-operator FM Synth and a synthesized Drum Machine
 - Effects: Filter, Distortion, Delay, Reverb. Modulators: LFO, Envelope. Utility: Mixer, Output
 - Typed cables (audio, notes, modulation) that refuse feedback loops; patches save as XML and autosave on quit
+- Record button writes the master output to a WAV file
 - Offline engine tests in `Tests/EngineTests.cpp`
 
 ## Next up
 
-1. **Record output to WAV**: capture the master output to a file.
+Nothing queued. Pick the next items from the ideas below.
 
 ## Ideas / maybe later
 
@@ -28,6 +29,7 @@ v0.1: a modular groovebox on a patch canvas. Every sound is synthesized.
 
 When an item is finished, move it here with the date (YYYY-MM-DD) and update "Current state".
 
+- 2026-11-16 **Record output to WAV**: Record button writes the master output to a 24-bit WAV in Music\Patchwork, written from the audio thread without blocking.
 - 2026-11-16 **Pattern slots on the sequencers**: 8 patterns (A-H) per sequencer, each piano roll pattern with its own length. Switching while playing waits for the loop to end. Old patches load into A.
 - 2026-11-16 **FM synth voice**: 2-operator FM Synth with ratio, index, decaying index envelope, modulator feedback, ADSR, index and pitch mod inputs.
 - 2026-11-16 **Mixer module**: 4 stereo inputs with level and equal-power pan, click-free gain changes, output meter.

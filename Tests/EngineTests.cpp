@@ -4,6 +4,7 @@
 #include "../Source/engine/ModuleRegistry.h"
 #include "../Source/modules/PianoRollModule.h"
 #include "../Source/modules/DrumSequencerModule.h"
+#include "../Source/engine/Recorder.h"
 #include <cstdio>
 
 static int failures = 0;
@@ -434,6 +435,58 @@ int main()
         oldDrums.setProperty ("lane1", "0000100000001000", nullptr);
         e.loadExtra (oldDrums);
         check (e.getStep (0, 1, 4) == 1 && e.getStep (0, 1, 12) == 1 && e.isEmpty (3), "old drum patch loads into pattern A");
+    }
+
+    // 13. recorder: the WAV file holds exactly what the graph rendered
+    {
+        Transport t;
+        Patch p (t);
+        prepare (p);
+        p.buildDefault();
+        t.start();
+
+        const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PatchworkRecorderTest.wav");
+        Recorder rec;
+        juce::AudioBuffer<float> buf (2, 512), all (2, 512 * 94);
+        juce::MidiBuffer midi;
+        rec.write (buf.getArrayOfReadPointers(), 512);     // not recording yet: ignored
+        check (rec.start (file, 48000) && rec.isRecording(), "recorder opens a wav file");
+
+        // about 1 s, fed to the recorder the way the audio engine does it
+        for (int b = 0; b < 94; ++b)
+        {
+            t.beginBlock();
+            buf.clear();
+            midi.clear();
+            p.getGraph().processBlock (buf, midi);
+            rec.write (buf.getArrayOfReadPointers(), 512);
+            for (int c = 0; c < 2; ++c)
+                all.copyFrom (c, b * 512, buf, c, 0, 512);
+            t.endBlock (512);
+        }
+        rec.stop();
+        rec.stop();                                         // stopping twice is harmless
+        check (! rec.isRecording() && rec.getSamplesRecorded() == all.getNumSamples() && ! rec.hasDroppedAudio(),
+               "recorder counts every sample and drops none");
+
+        std::unique_ptr<juce::AudioFormatReader> reader (juce::WavAudioFormat().createReaderFor (file.createInputStream().release(), true));
+        check (reader != nullptr && reader->sampleRate == 48000 && reader->numChannels == 2 && reader->bitsPerSample == 24
+                   && reader->lengthInSamples == all.getNumSamples(),
+               "recording is a 48 kHz stereo 24-bit wav of the right length");
+        if (reader != nullptr)
+        {
+            juce::AudioBuffer<float> back (2, all.getNumSamples());
+            reader->read (&back, 0, back.getNumSamples(), 0, true, true);
+            float maxDiff = 0;
+            for (int c = 0; c < 2; ++c)
+                for (int i = 0; i < back.getNumSamples(); ++i)
+                    maxDiff = std::max (maxDiff, std::abs (back.getSample (c, i) - all.getSample (c, i)));
+            std::printf ("      recording: rms %.4f  largest difference from the render %.2g\n",
+                         all.getRMSLevel (0, 0, all.getNumSamples()), maxDiff);
+            check (all.getRMSLevel (0, 0, all.getNumSamples()) > 0.01 && maxDiff < 1.0e-5f, "recording matches the rendered audio");
+        }
+        reader = nullptr;
+        file.deleteFile();
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "FAILED", failures, failures == 1 ? "" : "s");

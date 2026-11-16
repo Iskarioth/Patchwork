@@ -18,6 +18,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* in, int 
 {
     transport.beginBlock();
     player.audioDeviceIOCallbackWithContext (in, numIn, out, numOut, numSamples, ctx);
+    if (numOut >= 2)
+        recorder.write (out, numSamples);
     transport.endBlock (numSamples);
 }
 

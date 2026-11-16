@@ -53,6 +53,7 @@ These render audio through the graph with no sound card and check the patch make
 | Edit notes or drum steps | "Open editor" on the Piano Roll / Drum Sequencer |
 | Switch pattern | Pattern box on the sequencer or in its editor. While playing, the new pattern starts when the current loop ends |
 | Reset a knob | Double-click it |
+| Record to WAV | Record. Writes what you hear to `Music\Patchwork` as a 24-bit WAV; click again to stop |
 | Sound card / buffer size | Audio... (pick WASAPI for lower latency on Windows) |
 
 The patch autosaves on quit and reloads on start. Save... and Open... handle `.patch` files, which are plain XML.
@@ -95,6 +96,7 @@ Source/
     Patch.*            the AudioProcessorGraph, cables -> graph connections, save/load
     ModuleRegistry.*   the list of module types shown in the right-click menu
     AudioEngine.*      sound card <-> graph, drives the clock
+    Recorder.h         master output -> WAV file, fed from the audio thread
     Dsp.h              filters, envelopes, oscillators
   modules/     one header per module (or group of small ones)
   ui/          canvas, node boxes, cables, piano roll and drum grid editors
