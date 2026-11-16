@@ -51,6 +51,7 @@ These render audio through the graph with no sound card and check the patch make
 | Pan | Drag empty canvas, or scroll |
 | Play / stop | Space |
 | Edit notes or drum steps | "Open editor" on the Piano Roll / Drum Sequencer |
+| Switch pattern | Pattern box on the sequencer or in its editor. While playing, the new pattern starts when the current loop ends |
 | Reset a knob | Double-click it |
 | Sound card / buffer size | Audio... (pick WASAPI for lower latency on Windows) |
 
@@ -68,8 +69,8 @@ A port only accepts its own cable type, and cables that would create a feedback 
 
 | Category | Module | Notes |
 |---|---|---|
-| Sequencers | Piano Roll | Polyphonic, 1-8 bars, velocity per note |
-| | Drum Sequencer | 8 lanes x 16 steps, 3 velocity levels, sends GM drum notes |
+| Sequencers | Piano Roll | Polyphonic, 1-8 bars, velocity per note, 8 pattern slots |
+| | Drum Sequencer | 8 lanes x 16 steps, 3 velocity levels, 8 pattern slots, sends GM drum notes |
 | Instruments | Synth | 8 voices, 2 detuned oscillators, resonant filter with envelope, ADSR. Cutoff and pitch mod inputs |
 | | FM Synth | 8 voices, 2-operator FM: ratio, index with its own decay envelope, feedback, ADSR. Index and pitch mod inputs |
 | | Drum Machine | Kick, snare, clap, closed/open hat (with choke), two toms, rim. All synthesized |

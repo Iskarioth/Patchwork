@@ -1,12 +1,16 @@
 #include "DrumGridEditor.h"
 #include "Theme.h"
 
-DrumGridEditor::DrumGridEditor (DrumSequencerModule& m) : module (m)
+DrumGridEditor::DrumGridEditor (DrumSequencerModule& m) : module (m), pattern (m.getSelectedPattern())
 {
+    auto& patternParam = module.getPatternParameter();
+    patternBox.addItemList (patternParam.choices, 1);
+    patternAttachment = std::make_unique<juce::ComboBoxParameterAttachment> (patternParam, patternBox);
     clearButton.onClick = [this] {
-        module.clearAll();
+        module.clearPattern (pattern);
         repaint();
     };
+    addAndMakeVisible (patternBox);
     addAndMakeVisible (clearButton);
     setSize (labelW + 16 * 46 + 30, toolbarH + DrumSequencerModule::numLanes * rowH + 16);
     startTimerHz (30);
@@ -14,7 +18,8 @@ DrumGridEditor::DrumGridEditor (DrumSequencerModule& m) : module (m)
 
 void DrumGridEditor::resized()
 {
-    clearButton.setBounds (8, 7, 70, 26);
+    patternBox.setBounds (8, 7, 70, 26);
+    clearButton.setBounds (86, 7, 70, 26);
 }
 
 juce::Rectangle<int> DrumGridEditor::cellBounds (int lane, int step) const
@@ -40,7 +45,17 @@ bool DrumGridEditor::cellAt (juce::Point<int> p, int& lane, int& step) const
 
 void DrumGridEditor::timerCallback()
 {
-    const double ph = module.getPlayheadStep();
+    const int playing = module.getPlayingPattern();
+    if (module.getSelectedPattern() != pattern || playing != shownPlaying)
+    {
+        pattern = module.getSelectedPattern();
+        shownPlaying = playing;
+        paintValue = -1; // a paint drag in progress belonged to the old pattern
+        repaint();
+    }
+
+    // the playhead only belongs on this grid while its pattern is the one playing
+    const double ph = playing == pattern ? module.getPlayheadStep() : -1.0;
     const int step = ph < 0 ? -1 : (int) ph % 16;
     if (step != shownStep)
     {
@@ -52,12 +67,23 @@ void DrumGridEditor::timerCallback()
 void DrumGridEditor::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::background);
-    g.setColour (Theme::dim);
-    g.setFont (juce::FontOptions (12.0f));
-    g.drawText ("Click toggles a step. Right-click a lit step to change velocity. Drag to paint. Click a name to audition.",
-                90, 0, getWidth() - 100, toolbarH, juce::Justification::centredLeft);
-
     const auto accent = Theme::forCategory ("Sequencers");
+    g.setFont (juce::FontOptions (12.0f));
+    const juce::Rectangle<int> text (168, 0, getWidth() - 178, toolbarH);
+    if (shownPlaying >= 0 && shownPlaying != pattern)
+    {
+        const auto& names = module.getPatternParameter().choices;
+        g.setColour (accent);
+        g.drawText ("Pattern " + names[shownPlaying] + " is playing. " + names[pattern] + " starts when its loop ends.",
+                    text, juce::Justification::centredLeft);
+    }
+    else
+    {
+        g.setColour (Theme::dim);
+        g.drawText ("Click toggles a step. Right-click a lit step to change velocity. Drag to paint. Click a name to audition.",
+                    text, juce::Justification::centredLeft);
+    }
+
     for (int l = 0; l < DrumSequencerModule::numLanes; ++l)
     {
         const auto first = cellBounds (l, 0);
@@ -68,7 +94,7 @@ void DrumGridEditor::paint (juce::Graphics& g)
         for (int s = 0; s < DrumSequencerModule::numSteps; ++s)
         {
             const auto r = cellBounds (l, s).toFloat();
-            const int v = module.getStep (l, s);
+            const int v = module.getStep (pattern, l, s);
             g.setColour (v == 0 ? (s % 4 == 0 ? juce::Colour (0xff2e333a) : juce::Colour (0xff262a30))
                                 : accent.withAlpha (v == 1 ? 0.35f : v == 2 ? 0.65f : 1.0f));
             g.fillRoundedRectangle (r, 3.0f);
@@ -96,17 +122,17 @@ void DrumGridEditor::mouseDown (const juce::MouseEvent& e)
     if (! cellAt (p, lane, step))
         return;
 
-    const int v = module.getStep (lane, step);
+    const int v = module.getStep (pattern, lane, step);
     if (e.mods.isPopupMenu() || e.mods.isAltDown())
     {
         if (v > 0)
-            module.setStep (lane, step, v == 1 ? 3 : v - 1);
+            module.setStep (pattern, lane, step, v == 1 ? 3 : v - 1);
         paintValue = -1;
     }
     else
     {
         paintValue = v > 0 ? 0 : 3;
-        module.setStep (lane, step, paintValue);
+        module.setStep (pattern, lane, step, paintValue);
     }
     repaint();
 }
@@ -114,9 +140,9 @@ void DrumGridEditor::mouseDown (const juce::MouseEvent& e)
 void DrumGridEditor::mouseDrag (const juce::MouseEvent& e)
 {
     int lane, step;
-    if (paintValue >= 0 && cellAt (e.getPosition(), lane, step) && module.getStep (lane, step) != paintValue)
+    if (paintValue >= 0 && cellAt (e.getPosition(), lane, step) && module.getStep (pattern, lane, step) != paintValue)
     {
-        module.setStep (lane, step, paintValue);
+        module.setStep (pattern, lane, step, paintValue);
         repaint();
     }
 }

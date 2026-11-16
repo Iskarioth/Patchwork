@@ -275,14 +275,14 @@ void Patch::buildDefault()
         };
         chord (0, 14, { 48, 51, 55, 58 });   // Cm7
         chord (16, 14, { 44, 48, 51, 55 });  // Abmaj7
-        pr->setNotes (std::move (notes));
-        pr->setBars (2);
+        pr->setNotes (0, std::move (notes));
+        pr->setBars (0, 2);
     }
 
     if (auto* ds = dynamic_cast<DrumSequencerModule*> (getModule (seq)))
     {
         auto set = [ds] (int lane, std::initializer_list<int> steps, int vel) {
-            for (int s : steps) ds->setStep (lane, s, vel);
+            for (int s : steps) ds->setStep (0, lane, s, vel);
         };
         set (0, { 0, 4, 8, 12 }, 3);                                   // kick
         set (1, { 4, 12 }, 3);                                         // snare

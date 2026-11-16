@@ -3,7 +3,8 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "../modules/PianoRollModule.h"
 
-// The note grid. Edits a local copy of the notes and pushes it to the module on every change.
+// The note grid. Edits a local copy of one pattern's notes and pushes it to the module on
+// every change. Follows the pattern selected on the node.
 class PianoRollGrid : public juce::Component, private juce::Timer
 {
 public:
@@ -12,6 +13,8 @@ public:
     explicit PianoRollGrid (PianoRollModule&);
     int idealHeight() const { return (topPitch - bottomPitch + 1) * rowH; }
     void reload();
+    int getPattern() const { return pattern; }
+    std::function<void()> onPatternChanged;  // selected or playing pattern changed
     int yForPitch (int pitch) const { return (topPitch - pitch) * rowH; }
     double middlePitch() const;
 
@@ -27,15 +30,16 @@ private:
     enum class Mode { none, move, resize, create };
 
     void timerCallback() override;
-    int loopSteps() const { return module.getBars() * 16; }
+    int loopSteps() const { return module.getBars (pattern) * 16; }
     float cellW() const { return (float) (getWidth() - keyW) / (float) loopSteps(); }
     Pos posFor (juce::Point<float>) const;
     int hitNote (const Pos&) const;
     bool nearRightEdge (const SeqNote&, float x) const;
-    void push() { module.setNotes (notes); }
+    void push() { module.setNotes (pattern, notes); }
     void audition (int pitch) { module.preview (pitch, 0.8f, 0.25); }
 
     PianoRollModule& module;
+    int pattern = 0, shownPlaying = -2;
     std::vector<SeqNote> notes;
     Mode mode = Mode::none;
     int dragIndex = -1, dragOffset = 0, dragOrigin = 0, lastPitch = -1;
@@ -51,10 +55,13 @@ public:
     void resized() override;
 
 private:
+    void updateBarsBox();
+
     PianoRollModule& module;
     PianoRollGrid grid;
     juce::Viewport viewport;
-    juce::ComboBox barsBox;
+    juce::ComboBox patternBox, barsBox;
+    std::unique_ptr<juce::ComboBoxParameterAttachment> patternAttachment;
     juce::TextButton clearButton { "Clear" };
     bool scrolledToNotes = false;
 };

@@ -4,6 +4,7 @@
 #include "../modules/DrumSequencerModule.h"
 
 // 8 x 16 step grid. Click toggles, right-click cycles velocity, drag paints.
+// Edits the pattern selected on the node.
 class DrumGridEditor : public juce::Component, private juce::Timer
 {
 public:
@@ -23,7 +24,10 @@ private:
     bool cellAt (juce::Point<int>, int& lane, int& step) const;
 
     DrumSequencerModule& module;
+    juce::ComboBox patternBox;
+    std::unique_ptr<juce::ComboBoxParameterAttachment> patternAttachment;
     juce::TextButton clearButton { "Clear" };
+    int pattern = 0, shownPlaying = -2;
     int paintValue = -1;
     int shownStep = -2;
 };

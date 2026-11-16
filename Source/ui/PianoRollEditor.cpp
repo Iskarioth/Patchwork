@@ -10,13 +10,16 @@ bool isBlackKey (int p) { const int n = p % 12; return n == 1 || n == 3 || n == 
 
 PianoRollGrid::PianoRollGrid (PianoRollModule& m) : module (m)
 {
-    notes = module.getNotes();
+    reload();
     startTimerHz (30);
 }
 
 void PianoRollGrid::reload()
 {
-    notes = module.getNotes();
+    pattern = module.getSelectedPattern();
+    notes = module.getNotes (pattern);
+    mode = Mode::none; // a drag in progress referred to the old notes
+    dragIndex = -1;
     repaint();
 }
 
@@ -31,7 +34,18 @@ double PianoRollGrid::middlePitch() const
 
 void PianoRollGrid::timerCallback()
 {
-    const double step = module.getPlayheadStep();
+    const int playing = module.getPlayingPattern();
+    if (module.getSelectedPattern() != pattern || playing != shownPlaying)
+    {
+        if (module.getSelectedPattern() != pattern)
+            reload();
+        shownPlaying = playing;
+        if (onPatternChanged)
+            onPatternChanged();
+    }
+
+    // the playhead only belongs on this grid while its pattern is the one playing
+    const double step = playing == pattern ? module.getPlayheadStep() : -1.0;
     if (std::abs (step - shownStep) > 0.01)
     {
         shownStep = step;
@@ -240,41 +254,66 @@ void PianoRollGrid::mouseWheelMove (const juce::MouseEvent& e, const juce::Mouse
 
 PianoRollEditor::PianoRollEditor (PianoRollModule& m) : module (m), grid (m)
 {
+    auto& patternParam = module.getPatternParameter();
+    patternBox.addItemList (patternParam.choices, 1);
+    patternAttachment = std::make_unique<juce::ComboBoxParameterAttachment> (patternParam, patternBox);
+
     barsBox.addItemList ({ "1 bar", "2 bars", "4 bars", "8 bars" }, 1);
-    const int bars = module.getBars();
-    barsBox.setSelectedId (bars >= 8 ? 4 : bars >= 4 ? 3 : bars >= 2 ? 2 : 1, juce::dontSendNotification);
+    updateBarsBox();
     barsBox.onChange = [this] {
         static constexpr int values[] = { 1, 2, 4, 8 };
-        module.setBars (values[barsBox.getSelectedId() - 1]);
+        module.setBars (grid.getPattern(), values[barsBox.getSelectedId() - 1]);
         grid.repaint();
     };
     clearButton.onClick = [this] {
-        module.setNotes ({});
+        module.setNotes (grid.getPattern(), {});
         grid.reload();
     };
+    grid.onPatternChanged = [this] {
+        updateBarsBox();
+        repaint();
+    };
 
+    addAndMakeVisible (patternBox);
     addAndMakeVisible (barsBox);
     addAndMakeVisible (clearButton);
     viewport.setViewedComponent (&grid, false);
     viewport.setScrollBarsShown (true, false);
     addAndMakeVisible (viewport);
-    setSize (1000, 580);
+    setSize (1080, 580);
+}
+
+void PianoRollEditor::updateBarsBox()
+{
+    const int bars = module.getBars (grid.getPattern());
+    barsBox.setSelectedId (bars >= 8 ? 4 : bars >= 4 ? 3 : bars >= 2 ? 2 : 1, juce::dontSendNotification);
 }
 
 void PianoRollEditor::paint (juce::Graphics& g)
 {
     g.fillAll (Theme::background);
-    g.setColour (Theme::dim);
     g.setFont (juce::FontOptions (12.0f));
+    const juce::Rectangle<int> text (278, 0, getWidth() - 288, 36);
+    if (const int playing = module.getPlayingPattern(); playing >= 0 && playing != grid.getPattern())
+    {
+        const auto& names = module.getPatternParameter().choices;
+        g.setColour (Theme::forCategory ("Sequencers"));
+        g.drawText ("Pattern " + names[playing] + " is playing. " + names[grid.getPattern()] + " starts when its loop ends.",
+                    text, juce::Justification::centredLeft);
+        return;
+    }
+    g.setColour (Theme::dim);
     g.drawText ("Click to add, drag to set length. Drag to move, drag the right edge to resize. "
                 "Right-click deletes. Wheel over a note = velocity. Click the keys to audition.",
-                200, 0, getWidth() - 210, 36, juce::Justification::centredLeft);
+                text, juce::Justification::centredLeft);
 }
 
 void PianoRollEditor::resized()
 {
     auto b = getLocalBounds();
     auto bar = b.removeFromTop (36).reduced (6);
+    patternBox.setBounds (bar.removeFromLeft (70));
+    bar.removeFromLeft (8);
     barsBox.setBounds (bar.removeFromLeft (100));
     bar.removeFromLeft (8);
     clearButton.setBounds (bar.removeFromLeft (70));

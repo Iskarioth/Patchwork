@@ -2,6 +2,8 @@
 // sound card, and check the result. Run after every engine change.
 #include "../Source/engine/Patch.h"
 #include "../Source/engine/ModuleRegistry.h"
+#include "../Source/modules/PianoRollModule.h"
+#include "../Source/modules/DrumSequencerModule.h"
 #include <cstdio>
 
 static int failures = 0;
@@ -345,6 +347,93 @@ int main()
         check (fed > dry * 1.2, "fm feedback adds harmonics");
         check (fed < 0.5, "fm full feedback stays tonal (no noise)");
         check (attackPart > tailPart * 3 && std::abs (tailPart / sine - 1.0) < 0.05, "fm index envelope starts bright and decays to the base index");
+    }
+
+    // 11. pattern slots: a newly selected pattern takes over at the end of the loop
+    {
+        Transport t;
+        t.bpm = 120.0;                     // 6000 samples per step at 48 kHz
+        constexpr int64_t bar = 96000;
+        PianoRollModule roll;
+        roll.setTransport (&t);
+        roll.setNotes (0, { { 60, 0, 1, 0.8f } });
+        roll.setBars (0, 1);
+        roll.setNotes (1, { { 72, 0, 1, 0.8f } });
+        roll.setBars (1, 2);
+        roll.prepareToPlay (48000, 500);
+
+        // note-ons as (transport sample, pitch)
+        std::vector<std::pair<int64_t, int>> ons;
+        juce::AudioBuffer<float> buf (1, 500);
+        juce::MidiBuffer midi;
+        auto play = [&] (int64_t untilSample) {
+            do
+            {
+                t.beginBlock();
+                const int64_t at = t.position.load();
+                roll.processBlock (buf, midi);
+                for (const auto meta : midi)
+                    if (meta.getMessage().isNoteOn())
+                        ons.push_back ({ at + meta.samplePosition, meta.getMessage().getNoteNumber() });
+                t.endBlock (500);
+            } while (t.position.load() < untilSample);
+        };
+        using On = std::vector<std::pair<int64_t, int>>;
+
+        t.start();
+        play (bar / 2);
+        Patch::setParam (&roll, "pattern", 1.0f);
+        play (bar / 2 + 1000);
+        check (ons == On { { 0, 60 } } && roll.getPlayingPattern() == 0, "selected pattern waits for the loop to end");
+        play (bar * 3 + 6000);
+        check (ons == On { { 0, 60 }, { bar, 72 }, { bar * 3, 72 } } && roll.getPlayingPattern() == 1,
+               "new pattern starts exactly at the loop boundary and loops at its own length");
+
+        t.stop();
+        play (0);
+        check (roll.getPlayingPattern() == -1, "no pattern is playing when stopped");
+        Patch::setParam (&roll, "pattern", 0.0f);
+        ons.clear();
+        t.start();
+        play (bar + 1000);
+        check (ons == On { { 0, 60 }, { bar, 60 } }, "after a restart the selected pattern plays from its start");
+    }
+
+    // 12. pattern slots survive save/load; patches from before pattern slots load into A
+    {
+        PianoRollModule a, b;
+        a.setNotes (0, { { 60, 0, 1, 0.8f } });
+        a.setNotes (5, { { 72, 4, 2, 0.5f } });
+        a.setBars (5, 4);
+        juce::ValueTree extra ("EXTRA");
+        a.saveExtra (extra);
+        b.loadExtra (extra);
+        check (b.getNotes (0).size() == 1 && b.getNotes (5).size() == 1 && b.getNotes (5)[0].pitch == 72
+                   && b.getBars (5) == 4 && b.getNotes (1).empty(),
+               "piano roll patterns survive save/load");
+
+        juce::ValueTree old ("EXTRA");
+        old.setProperty ("bars", 4, nullptr);
+        juce::ValueTree note ("NOTE");
+        note.setProperty ("p", 64, nullptr).setProperty ("s", 2.0, nullptr).setProperty ("l", 1.0, nullptr).setProperty ("v", 0.7f, nullptr);
+        old.appendChild (note, nullptr);
+        b.loadExtra (old);
+        check (b.getBars (0) == 4 && b.getNotes (0).size() == 1 && b.getNotes (0)[0].pitch == 64 && b.getNotes (5).empty(),
+               "old piano roll patch loads into pattern A");
+
+        DrumSequencerModule d, e;
+        d.setStep (0, 0, 0, 3);
+        d.setStep (3, 2, 5, 2);
+        juce::ValueTree dx ("EXTRA");
+        d.saveExtra (dx);
+        e.loadExtra (dx);
+        check (e.getStep (0, 0, 0) == 3 && e.getStep (3, 2, 5) == 2 && e.getStep (0, 2, 5) == 0 && e.isEmpty (1),
+               "drum patterns survive save/load");
+
+        juce::ValueTree oldDrums ("EXTRA");
+        oldDrums.setProperty ("lane1", "0000100000001000", nullptr);
+        e.loadExtra (oldDrums);
+        check (e.getStep (0, 1, 4) == 1 && e.getStep (0, 1, 12) == 1 && e.isEmpty (3), "old drum patch loads into pattern A");
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "FAILED", failures, failures == 1 ? "" : "s");

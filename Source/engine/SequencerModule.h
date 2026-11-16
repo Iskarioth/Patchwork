@@ -14,16 +14,27 @@ struct SeqNote
 
 // Base for anything that turns pattern data into MIDI on a Note output.
 // Subclasses only describe their notes; this class handles timing, looping,
-// note-offs, stopping cleanly and auditioning notes from the editor.
+// note-offs, stopping cleanly, switching patterns and auditioning notes from the editor.
 class SequencerModule : public ModuleProcessor
 {
 public:
+    static constexpr int numPatterns = 8;
+
     SequencerModule() : ModuleProcessor ({}, { { "Notes", PortType::Note, 0 } })
     {
+        patternChoice = addChoice ("pattern", "Pattern", { "A", "B", "C", "D", "E", "F", "G", "H" }, 0);
         scratch.reserve (4096);
         events.reserve (512);
         offAt.fill (-1);
     }
+
+    // The pattern chosen on the node. The editors edit this one.
+    int getSelectedPattern() const { return patternChoice->getIndex(); }
+    juce::AudioParameterChoice& getPatternParameter() { return *patternChoice; }
+
+    // The pattern being played, or -1 when stopped. While playing, a newly selected
+    // pattern only takes over at the end of the current loop.
+    int getPlayingPattern() const { return playingPattern.load(); }
 
     // Message thread: play a note now, even when the transport is stopped.
     void preview (int pitch, float velocity, double seconds)
@@ -50,37 +61,48 @@ public:
         });
 
         const bool playing = transport != nullptr && transport->blockPlaying.load();
+        const int wanted = patternChoice->getIndex();
         if (playing)
         {
             const double sps = Transport::samplesPerStep (sampleRate, transport->bpm.load());
             const double pos = (double) transport->position.load();
             const double endPos = pos + n;
-            int loopSteps = 16;
+            if (! wasPlaying || pos < anchor) // started, or restarted from the top
             {
-                const juce::SpinLock::ScopedLockType sl (dataLock);
-                scratch.clear();
-                loopSteps = std::max (1, gatherNotes (scratch));
+                current = wanted;
+                anchor = pos;
             }
-            const double loopLen = loopSteps * sps;
+            double loopLen = gather (current, sps);
 
-            for (auto k = (int64_t) std::floor (pos / loopLen); (double) k * loopLen < endPos; ++k)
+            // loops of the current pattern are counted from where it started (anchor)
+            for (double loopStart = anchor + std::floor ((pos - anchor) / loopLen) * loopLen; loopStart < endPos; loopStart += loopLen)
+            {
+                if (wanted != current && loopStart >= pos) // a loop ends in this block: switch here
+                {
+                    current = wanted;
+                    anchor = loopStart;
+                    loopLen = gather (current, sps);
+                }
                 for (const auto& note : scratch)
                 {
                     if (note.start >= loopSteps)
                         continue;
-                    const double on = (double) k * loopLen + note.start * sps;
+                    const double on = loopStart + note.start * sps;
                     if (on >= pos && on < endPos)
                         events.push_back ({ (int) (on - pos), note.pitch, note.velocity,
                                             (int64_t) std::max (1.0, note.length * sps) });
                 }
+            }
 
-            playheadStep = std::fmod (pos, loopLen) / sps;
+            playheadStep = std::fmod (std::max (0.0, pos - anchor), loopLen) / sps;
+            playingPattern = current;
         }
         else
         {
             if (wasPlaying)
                 killAll (midi);
             playheadStep = -1.0;
+            playingPattern = -1;
         }
         wasPlaying = playing;
 
@@ -103,14 +125,24 @@ public:
     }
 
 protected:
-    // Called on the audio thread with dataLock held. Append notes, return loop length in steps.
-    virtual int gatherNotes (std::vector<SeqNote>& out) = 0;
+    // Called on the audio thread with dataLock held. Append the notes of one pattern,
+    // return its loop length in steps.
+    virtual int gatherNotes (int pattern, std::vector<SeqNote>& out) = 0;
 
     juce::SpinLock dataLock; // guards the subclass's pattern data
 
 private:
     struct Event { int offset; int pitch; float velocity; int64_t lengthSamples; };
     struct PreviewNote { int pitch; float velocity; double seconds; };
+
+    // Fills scratch with the notes of pattern p; returns its loop length in samples.
+    double gather (int p, double samplesPerStep)
+    {
+        const juce::SpinLock::ScopedLockType sl (dataLock);
+        scratch.clear();
+        loopSteps = std::max (1, gatherNotes (p, scratch));
+        return loopSteps * samplesPerStep;
+    }
 
     void flushOffs (juce::MidiBuffer& midi, int64_t blockStart, int64_t limit)
     {
@@ -137,7 +169,11 @@ private:
     int64_t localClock = 0;          // counts every processed sample, playing or not
     std::array<int64_t, 128> offAt;  // pending note-off per pitch, in localClock samples
     bool wasPlaying = false;
+    int current = 0, loopSteps = 16;  // pattern being played and its length
+    double anchor = 0;               // transport position where it started
     std::atomic<double> playheadStep { -1.0 };
+    std::atomic<int> playingPattern { -1 };
+    juce::AudioParameterChoice* patternChoice;
     std::vector<SeqNote> scratch;
     std::vector<Event> events;
 
