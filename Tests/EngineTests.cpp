@@ -145,6 +145,83 @@ int main()
         check (b.getCables().size() == a.getCables().size(), "cables survive save/load");
     }
 
+    // 6. envelope follows its note gate, sample by sample
+    {
+        using M = juce::MidiMessage;
+        auto env = createModule ("envelope");
+        Patch::setParam (env.get(), "attack", 0.01f);
+        Patch::setParam (env.get(), "decay", 0.1f);
+        Patch::setParam (env.get(), "sustain", 0.5f);
+        Patch::setParam (env.get(), "release", 0.05f);
+        env->prepareToPlay (48000, 480);
+
+        // runs 10 ms blocks with the events at the start of the first one; returns the last sample
+        juce::AudioBuffer<float> buf (1, 480);
+        float last = 0, peak = 0, maxStep = 0;
+        auto run = [&] (int blocks, std::initializer_list<M> events = {}) {
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::MidiBuffer midi;
+                if (b == 0)
+                    for (auto& m : events) midi.addEvent (m, 0);
+                env->processBlock (buf, midi);
+                for (int i = 0; i < buf.getNumSamples(); ++i)
+                {
+                    const float v = buf.getSample (0, i);
+                    maxStep = std::max (maxStep, std::abs (v - last));
+                    peak = std::max (peak, v);
+                    last = v;
+                }
+            }
+            return last;
+        };
+
+        check (run (5) == 0.0f, "envelope rests at zero with no notes");
+        const float sustained = run (30, { M::noteOn (1, 60, 0.8f) });
+        check (peak > 0.99f, "envelope attacks to full");
+        check (std::abs (sustained - 0.5f) < 0.01f, "envelope holds at sustain");
+        run (5, { M::noteOn (1, 64, 0.8f) });
+        check (std::abs (run (15, { M::noteOff (1, 60) }) - 0.5f) < 0.01f, "envelope stays open while another note is held");
+        check (run (10, { M::noteOff (1, 64) }) == 0.0f, "envelope releases to zero after the last note-off");
+        run (1, { M::noteOn (1, 60, 0.8f) });
+        run (2, { M::noteOff (1, 60) });
+        run (30, { M::noteOn (1, 60, 0.8f) });      // retrigger mid-release
+        check (run (10, { M::allNotesOff (1) }) == 0.0f, "all-notes-off releases the envelope");
+        std::printf ("      envelope: largest step between samples %.4f\n", maxStep);
+        check (maxStep < 0.01f, "envelope never jumps (retrigger and release are click-free)");
+
+        Patch::setParam (env.get(), "depth", -1.0f);
+        check (std::abs (run (30, { M::noteOn (1, 60, 0.8f) }) + 0.5f) < 0.01f, "negative depth inverts the envelope");
+    }
+
+    // 7. envelope driven by a sequencer over a cable, released by stopping the transport
+    {
+        Transport t;
+        Patch p (t);
+        prepare (p);
+        p.buildDefault();
+        Patch::NodeID roll, syn;
+        for (auto id : p.getModuleIds())
+        {
+            if (p.getModuleType (id) == "pianoroll") roll = id;
+            if (p.getModuleType (id) == "synth") syn = id;
+        }
+        const auto env = p.addModule ("envelope", {});
+        check (! p.canConnect ({ env, 0, syn, 0 }), "envelope output cannot plug into note input");
+        check (p.connect ({ roll, 0, env, 0 }), "connect sequencer -> envelope");
+        check (p.connect ({ env, 0, syn, 1 }), "connect envelope -> synth cutoff mod");
+
+        t.start();
+        const auto r = render (p, t, 0.5);         // first chord is held for ~1.8 s
+        const float open = p.getModule (env)->getMeterLevel();
+        std::printf ("      envelope from piano roll: level %.3f\n", open);
+        check (r.finite, "patch with envelope modulation is finite");
+        check (open > 0.4f, "envelope opens when the sequencer plays a note");
+        t.stop();
+        render (p, t, 1.0);
+        check (p.getModule (env)->getMeterLevel() == 0.0f, "envelope closes when the transport stops");
+    }
+
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }
