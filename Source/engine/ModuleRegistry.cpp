@@ -2,6 +2,7 @@
 #include "../modules/PianoRollModule.h"
 #include "../modules/DrumSequencerModule.h"
 #include "../modules/SynthModule.h"
+#include "../modules/FmSynthModule.h"
 #include "../modules/DrumMachineModule.h"
 #include "../modules/EffectModules.h"
 #include "../modules/EnvelopeModule.h"
@@ -19,6 +20,7 @@ const std::vector<ModuleType>& getModuleTypes()
         { "pianoroll",  "Piano Roll",     "Sequencers",  make<PianoRollModule>() },
         { "drumseq",    "Drum Sequencer", "Sequencers",  make<DrumSequencerModule>() },
         { "synth",      "Synth",          "Instruments", make<SynthModule>() },
+        { "fmsynth",    "FM Synth",       "Instruments", make<FmSynthModule>() },
         { "drums",      "Drum Machine",   "Instruments", make<DrumMachineModule>() },
         { "filter",     "Filter",         "Effects",     make<FilterModule>() },
         { "distortion", "Distortion",     "Effects",     make<DistortionModule>() },

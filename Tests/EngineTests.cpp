@@ -85,7 +85,8 @@ int main()
     }
 
     // 3. each instrument on its own through an output
-    for (auto [seqType, instType] : { std::pair { "pianoroll", "synth" }, std::pair { "drumseq", "drums" } })
+    for (auto [seqType, instType] : { std::pair { "pianoroll", "synth" }, std::pair { "pianoroll", "fmsynth" },
+                                      std::pair { "drumseq", "drums" } })
     {
         Transport t;
         Patch ref (t);
@@ -111,6 +112,10 @@ int main()
         const auto r = render (p, t, 2.0);
         std::printf ("      %s -> %s: rms %.4f\n", seqType, instType, r.rms);
         check (r.rms > 0.005, "instrument is audible on its own");
+        check (r.peak <= 1.0, "instrument never exceeds 0 dBFS");
+        t.stop();
+        render (p, t, 2.0);
+        check (render (p, t, 1.0).rms < 0.002, "instrument goes quiet after stop");
     }
 
     // 4. cable rules
@@ -291,6 +296,55 @@ int main()
         lone.connect ({ m2, 0, lone.addModule ("output", {}), 0 });
         t2.start();
         check (render (lone, t2, 0.5).peak == 0.0, "mixer with nothing plugged in is silent");
+    }
+
+    // 10. FM synth: index 0 is a pure sine at the note's pitch; index adds harmonics
+    {
+        // Plays A3 (220 Hz) and measures brightness over 10 ms blocks [from, to): rms of the
+        // sample-to-sample difference over rms of the signal. A pure sine gives 2 sin (pi f / sr).
+        using Settings = std::initializer_list<std::pair<const char*, float>>;
+        auto brightness = [] (Settings settings, float indexMod = 0, int from = 5, int to = 50) {
+            auto fm = createModule ("fmsynth");
+            for (auto [id, v] : settings)
+                Patch::setParam (fm.get(), id, v);
+            fm->prepareToPlay (48000, 480);
+            juce::AudioBuffer<float> buf (2, 480);
+            double sumSq = 0, diffSq = 0;
+            float prev = 0;
+            for (int b = 0; b < to; ++b)
+            {
+                juce::MidiBuffer midi;
+                if (b == 0) midi.addEvent (juce::MidiMessage::noteOn (1, 57, 1.0f), 0);
+                juce::FloatVectorOperations::fill (buf.getWritePointer (0), indexMod, 480);
+                buf.clear (1, 0, 480);
+                fm->processBlock (buf, midi);
+                for (int i = 0; i < 480; ++i)
+                {
+                    const float v = buf.getSample (0, i);
+                    if (b >= from) { sumSq += (double) v * v; diffSq += (double) (v - prev) * (v - prev); }
+                    prev = v;
+                }
+            }
+            return std::sqrt (diffSq / std::max (1.0e-12, sumSq));
+        };
+
+        const double sine = 2.0 * std::sin (juce::MathConstants<double>::pi * 220.0 / 48000.0);
+        const double pure = brightness ({ { "index", 0.0f }, { "envindex", 0.0f } });
+        const double bright = brightness ({ { "index", 6.0f }, { "envindex", 0.0f } });
+        const double modded = brightness ({ { "index", 0.0f }, { "envindex", 0.0f } }, 1.0f);
+        const double dry = brightness ({ { "index", 2.0f }, { "envindex", 0.0f }, { "ratio", 1.0f } });
+        const double fed = brightness ({ { "index", 2.0f }, { "envindex", 0.0f }, { "ratio", 1.0f }, { "feedback", 1.0f } });
+        const Settings pluck { { "index", 0.0f }, { "envindex", 8.0f }, { "envdecay", 0.1f } };
+        const double attackPart = brightness (pluck, 0, 0, 3), tailPart = brightness (pluck, 0, 40, 50);
+        std::printf ("      fm brightness: sine %.4f  pure %.4f  index 6 %.3f  index mod %.3f  index 2 %.3f -> feedback %.3f\n"
+                     "                     index env: attack %.3f  tail %.4f\n",
+                     sine, pure, bright, modded, dry, fed, attackPart, tailPart);
+        check (std::abs (pure / sine - 1.0) < 0.02, "fm with index 0 is a sine at the note's pitch");
+        check (bright > pure * 3, "fm index adds harmonics");
+        check (modded > pure * 3, "fm index mod input adds harmonics");
+        check (fed > dry * 1.2, "fm feedback adds harmonics");
+        check (fed < 0.5, "fm full feedback stays tonal (no noise)");
+        check (attackPart > tailPart * 3 && std::abs (tailPart / sine - 1.0) < 0.05, "fm index envelope starts bright and decays to the base index");
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "FAILED", failures, failures == 1 ? "" : "s");

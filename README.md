@@ -71,6 +71,7 @@ A port only accepts its own cable type, and cables that would create a feedback 
 | Sequencers | Piano Roll | Polyphonic, 1-8 bars, velocity per note |
 | | Drum Sequencer | 8 lanes x 16 steps, 3 velocity levels, sends GM drum notes |
 | Instruments | Synth | 8 voices, 2 detuned oscillators, resonant filter with envelope, ADSR. Cutoff and pitch mod inputs |
+| | FM Synth | 8 voices, 2-operator FM: ratio, index with its own decay envelope, feedback, ADSR. Index and pitch mod inputs |
 | | Drum Machine | Kick, snare, clap, closed/open hat (with choke), two toms, rim. All synthesized |
 | Effects | Filter | Lowpass/highpass/bandpass, drive, cutoff mod input |
 | | Distortion | Drive, tone, mix |
