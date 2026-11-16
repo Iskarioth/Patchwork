@@ -5,6 +5,7 @@
 #include "../modules/DrumMachineModule.h"
 #include "../modules/EffectModules.h"
 #include "../modules/EnvelopeModule.h"
+#include "../modules/MixerModule.h"
 
 template <typename T>
 static std::function<std::unique_ptr<ModuleProcessor>()> make()
@@ -25,6 +26,7 @@ const std::vector<ModuleType>& getModuleTypes()
         { "reverb",     "Reverb",         "Effects",     make<ReverbModule>() },
         { "lfo",        "LFO",            "Modulators",  make<LfoModule>() },
         { "envelope",   "Envelope",       "Modulators",  make<EnvelopeModule>() },
+        { "mixer",      "Mixer",          "Utility",     make<MixerModule>() },
         { "output",     "Output",         "Utility",     make<OutputModule>() },
     };
     return types;

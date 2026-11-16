@@ -222,6 +222,77 @@ int main()
         check (p.getModule (env)->getMeterLevel() == 0.0f, "envelope closes when the transport stops");
     }
 
+    // 8. mixer: sums its inputs with level and pan, ramping gain changes
+    {
+        auto mix = createModule ("mixer");
+        mix->prepareToPlay (48000, 512);
+        juce::AudioBuffer<float> buf (8, 512);
+        // one block with constant inputs (value per stereo input); returns the buffer
+        auto run = [&] (std::array<float, 4> inputs) -> const juce::AudioBuffer<float>& {
+            for (int c = 0; c < 8; ++c)
+                juce::FloatVectorOperations::fill (buf.getWritePointer (c), inputs[(size_t) c / 2], 512);
+            juce::MidiBuffer midi;
+            mix->processBlock (buf, midi);
+            return buf;
+        };
+        auto near = [] (float a, float b) { return std::abs (a - b) < 1.0e-4f; };
+
+        auto& b1 = run ({ 0.5f, 0, 0, 0 });
+        check (near (b1.getSample (0, 0), 0.5f) && near (b1.getSample (1, 511), 0.5f), "mixer passes a centred input through unchanged");
+        auto& b2 = run ({ 0.5f, 0, 0.25f, 0 });
+        check (near (b2.getSample (0, 100), 0.75f) && near (b2.getSample (1, 100), 0.75f), "mixer sums its inputs");
+
+        Patch::setParam (mix.get(), "pan1", 1.0f);
+        auto& b3 = run ({ 0.5f, 0, 0, 0 });
+        check (b3.getSample (0, 0) > 0.49f && b3.getSample (0, 511) < 0.01f, "gain changes ramp across a block (no zipper)");
+        auto& b4 = run ({ 0.5f, 0, 0, 0 });
+        check (near (b4.getSample (0, 0), 0.0f) && near (b4.getSample (1, 0), 0.5f), "hard-right pan silences the left side");
+
+        Patch::setParam (mix.get(), "pan1", 0.0f);
+        Patch::setParam (mix.get(), "level1", -60.0f);
+        run ({ 0.5f, 0, 0, 0 });
+        auto& b5 = run ({ 0.5f, 0, 0.25f, 0 });
+        check (near (b5.getSample (0, 0), 0.25f), "level at minimum mutes that input only");
+    }
+
+    // 9. mixer in a patch: both starter instruments through one mixer
+    {
+        Transport t;
+        Patch p (t);
+        prepare (p);
+        p.buildDefault();
+        Patch::NodeID verb, drums, out;
+        for (auto id : p.getModuleIds())
+        {
+            if (p.getModuleType (id) == "reverb") verb = id;
+            if (p.getModuleType (id) == "drums") drums = id;
+            if (p.getModuleType (id) == "output") out = id;
+        }
+        p.disconnect ({ verb, 0, out, 0 });
+        p.disconnect ({ drums, 0, out, 0 });
+        const auto mix = p.addModule ("mixer", {});
+        check (p.connect ({ verb, 0, mix, 0 }) && p.connect ({ drums, 0, mix, 1 }) && p.connect ({ mix, 0, out, 0 }),
+               "connect two instruments -> mixer -> output");
+        check (! p.canConnect ({ mix, 0, mix, 2 }), "mixer cannot feed itself");
+
+        t.start();
+        const auto both = render (p, t, 2.0);
+        Patch::setParam (p.getModule (mix), "level2", -60.0f);
+        render (p, t, 0.1);
+        const auto synthOnly = render (p, t, 2.0);
+        std::printf ("      mixer: both %.4f  drums muted %.4f\n", both.rms, synthOnly.rms);
+        check (both.finite && both.rms > 0.01, "mixed patch is audible");
+        check (synthOnly.rms > 0.005 && synthOnly.rms < both.rms * 0.9, "muting a mixer channel removes that instrument");
+
+        Transport t2;
+        Patch lone (t2);
+        prepare (lone);
+        const auto m2 = lone.addModule ("mixer", {});
+        lone.connect ({ m2, 0, lone.addModule ("output", {}), 0 });
+        t2.start();
+        check (render (lone, t2, 0.5).peak == 0.0, "mixer with nothing plugged in is silent");
+    }
+
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }

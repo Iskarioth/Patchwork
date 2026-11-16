@@ -78,7 +78,8 @@ A port only accepts its own cable type, and cables that would create a feedback 
 | | Reverb | Size, damping, width, mix |
 | Modulators | LFO | 5 shapes, free or tempo-synced, depth, offset |
 | | Envelope | ADSR triggered by a note input, depth -1..1 (negative inverts) |
-| Utility | Output | Master volume, soft clipper, meter. Several outputs are summed |
+| Utility | Mixer | 4 stereo inputs, level and pan each, meter |
+| | Output | Master volume, soft clipper, meter. Several outputs are summed |
 
 ## How it's built
 
