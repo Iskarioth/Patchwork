@@ -8,17 +8,19 @@ You start with an empty canvas. Right-click to add modules (a piano roll, a synt
 
 You need:
 
-- Visual Studio 2022 with the "Desktop development with C++" workload
+- Visual Studio 2022 or newer with the "Desktop development with C++" workload
 - CMake 3.22 or newer (the copy that comes with Visual Studio works)
 - Git (CMake uses it to download JUCE the first time)
 
-From a "Developer PowerShell for VS 2022" in this folder:
+From a Visual Studio Developer PowerShell in this folder:
 
 ```powershell
-cmake -B build -G "Visual Studio 17 2022"
+cmake -B build -A x64
 cmake --build build --config Release
 .\build\Patchwork_artefacts\Release\Patchwork.exe
 ```
+
+CMake picks the newest installed Visual Studio, so there is no generator to name. Tested with VS 2026 (MSVC 19.51).
 
 The first configure downloads JUCE 9.0.5 and takes a few minutes. After that, builds are incremental.
 
